@@ -27,6 +27,9 @@
   .flex{display:flex;gap:8px}
   .controls{display:flex;flex-direction:column;gap:8px}
   #viewer canvas{width:100%;height:100%;display:block}
+  .info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:12px}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:rgba(255,255,255,0.04);color:#cbd5e1;font-size:12px}
+  .pill svg{width:14px;height:14px}
 </style>
 </head>
 <body>
@@ -99,6 +102,42 @@
     </div>
   </div>
 
+  <div class="info-grid">
+    <div class="card">
+      <div class="pill" title="Why this exists">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3l7 4v6c0 4-3 7-7 8-4-1-7-4-7-8V7l7-4z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Inspired by craft-forward 3D letterpress tooling.
+      </div>
+      <h3 style="margin:10px 0 6px">Purpose-built for printable type</h3>
+      <p class="small">Upload any .ttf or .otf and instantly preview glyph geometry in 3D. Mirror the build for letterpress, add a rectangular backer for easier mounting, and export single glyphs or the entire alphabet as ready-to-fix STL meshes.</p>
+    </div>
+
+    <div class="card">
+      <div class="pill" title="Workflow">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 8h10M7 12h10M7 16h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Quick start
+      </div>
+      <ol class="small" style="margin:10px 0 0 16px; padding:0 0 0 4px; display:grid; gap:6px">
+        <li>Drop a font file or use the picker to load glyphs.</li>
+        <li>Select a glyph tile or type a short word to preview.</li>
+        <li>Choose type height, extrusion depth, optional inset, and mirror for letterpress.</li>
+        <li>Click <strong>Build Preview</strong> to rebuild the mesh, then export the selected glyph or a ZIP of all glyphs.</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <div class="pill" title="Print tips">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Print notes
+      </div>
+      <ul class="small" style="margin:10px 0 0 16px; padding:0 0 0 4px; display:grid; gap:6px">
+        <li>Exported meshes are flat STL solids; run through a mesh fixer or slicer if you need manifold validation.</li>
+        <li>Type height defaults to 0.918&quot; (23.3&nbsp;mm). Use the drop-down to match your press bed or resin shrink.</li>
+        <li>"Inset stroke" adds a lightly engraved inner pass for visual checking—use a CAD boolean if you need perfect counters.</li>
+      </ul>
+    </div>
+  </div>
+
   <footer>
     Built to mimic DigitalTypeFoundry-style previews. Exports plain STLs — run through a slicer or mesh fixer if needed for printability.
   </footer>
@@ -132,6 +171,7 @@ const baselineInput = document.getElementById('baseline');
 const heightPreset = document.getElementById('heightPreset');
 const viewer = document.getElementById('viewer');
 const resetCamBtn = document.getElementById('resetCam');
+const persistentControls = [heightPreset, depthInput, baselineInput, insetInput, mirrorChk, addBackChk];
 
 let loadedFont = null;
 let glyphs = [];
@@ -157,7 +197,39 @@ let previewGroup = new THREE.Group(); scene.add(previewGroup);
 function animate(){ requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
 animate();
 
+restoreSettings();
+persistentControls.forEach(ctrl=>{
+  ctrl.addEventListener('change', ()=>{ saveSettings(); });
+  ctrl.addEventListener('input', ()=>{ saveSettings(); });
+});
+
 window.addEventListener('resize', ()=>{ renderer.setSize(viewer.clientWidth, viewer.clientHeight); camera.aspect = viewer.clientWidth / viewer.clientHeight; camera.updateProjectionMatrix(); });
+
+function saveSettings(){
+  const payload = {
+    heightPreset: heightPreset.value,
+    depth: depthInput.value,
+    baseline: baselineInput.value,
+    inset: insetInput.value,
+    mirror: mirrorChk.checked,
+    addBack: addBackChk.checked
+  };
+  localStorage.setItem('fontToStlSettings', JSON.stringify(payload));
+}
+
+function restoreSettings(){
+  try{
+    const stored = localStorage.getItem('fontToStlSettings');
+    if(!stored) return;
+    const data = JSON.parse(stored);
+    if(data.heightPreset) heightPreset.value = data.heightPreset;
+    if(data.depth) depthInput.value = data.depth;
+    if(data.baseline) baselineInput.value = data.baseline;
+    if(data.inset) insetInput.value = data.inset;
+    if(typeof data.mirror === 'boolean') mirrorChk.checked = data.mirror;
+    if(typeof data.addBack === 'boolean') addBackChk.checked = data.addBack;
+  }catch(err){ console.warn('Unable to restore settings', err); }
+}
 
 // File handling + drag/drop
 fileInput.addEventListener('change', async (e)=>{ if(e.target.files && e.target.files[0]) await loadFontFile(e.target.files[0]); });
