@@ -27,7 +27,10 @@
   .flex{display:flex;gap:8px}
   .controls{display:flex;flex-direction:column;gap:8px}
   #viewer canvas{width:100%;height:100%;display:block}
-  .info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:12px}
+    .info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:12px}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:rgba(255,255,255,0.04);color:#cbd5e1;font-size:12px}
+  .pill svg{width:14px;height:14px}
+    .info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:12px}
   .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:rgba(255,255,255,0.04);color:#cbd5e1;font-size:12px}
   .pill svg{width:14px;height:14px}
 </style>
@@ -41,12 +44,20 @@
       <div class="small">Upload fonts, preview glyphs, add backs, mirror, and batch-export STLs.</div>
     </div>
   </header>
-
   <div class="grid">
     <!-- Left column: controls -->
     <div class="card">
       <label>Drag & drop or choose a font (.ttf, .otf)</label>
       <div id="drop" style="border:2px dashed rgba(255,255,255,0.04);padding:12px;border-radius:8px;cursor:pointer">Drop font here or <input id="file" type="file" accept=".ttf,.otf" style="display:inline-block;margin-left:6px"></div>
+       <label style="margin-top:12px">Or try a preset web font (no upload)</label>
+      <div class="row">
+        <select id="presetFont">
+          <option value="merriweathersans">Merriweather Sans (Google Fonts)</option>
+          <option value="inter">Inter (Google Fonts)</option>
+        </select>
+        <button id="loadPreset">Load</button>
+      </div>
+      <div class="small">Useful for quick STL trials without a local font file.</div>
       <div class="meta" style="margin-top:10px">
         <div class="small">Loaded: <span id="fontName">—</span></div>
         <div class="small">Glyphs: <span id="glyphCount">0</span></div>
@@ -55,7 +66,6 @@
       <label>Glyph selector (click to preview)</label>
       <div id="glyphList" class="glyph-grid card" style="padding:8px;background:transparent"></div>
 
-@@ -77,110 +80,179 @@
         <label><input id="mirror" type="checkbox"> Mirror horizontally</label>
 
         <label>Add rectangular flat back</label>
@@ -81,7 +91,7 @@
     </div>
   </div>
 
-  <div class="info-grid">
+   <div class="info-grid">
     <div class="card">
       <div class="pill" title="Why this exists">
         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 3l7 4v6c0 4-3 7-7 8-4-1-7-4-7-8V7l7-4z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -150,12 +160,22 @@ const baselineInput = document.getElementById('baseline');
 const heightPreset = document.getElementById('heightPreset');
 const viewer = document.getElementById('viewer');
 const resetCamBtn = document.getElementById('resetCam');
+const presetFont = document.getElementById('presetFont');
+const loadPresetBtn = document.getElementById('loadPreset');
 const persistentControls = [heightPreset, depthInput, baselineInput, insetInput, mirrorChk, addBackChk];
-
 let loadedFont = null;
 let glyphs = [];
 let previewObject = null;
-
+const presetFonts = {
+  merriweathersans: {
+    url: 'https://cdn.jsdelivr.net/gh/google/fonts/ofl/merriweathersans/MerriweatherSans-Regular.ttf',
+    label: 'Merriweather Sans Regular'
+  },
+  inter: {
+    url: 'https://cdn.jsdelivr.net/gh/google/fonts/ofl/inter/Inter-Regular.ttf',
+    label: 'Inter Regular'
+  }
+};
 // THREE setup
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0b1220);
@@ -215,23 +235,64 @@ fileInput.addEventListener('change', async (e)=>{ if(e.target.files && e.target.
 ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.style.borderColor='rgba(124,58,237,0.7)'; }));
 ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.style.borderColor='rgba(255,255,255,0.04)'; }));
 drop.addEventListener('drop', async (e)=>{ if(e.dataTransfer.files && e.dataTransfer.files[0]) await loadFontFile(e.dataTransfer.files[0]); });
-
+loadPresetBtn.addEventListener('click', async ()=>{
+  const choice = presetFont.value;
+  const cfg = presetFonts[choice];
+  if(!cfg) return;
+  await loadFontFromUrl(cfg.url, cfg.label);
+});
 async function loadFontFile(file){
   try{
     const ab = await file.arrayBuffer();
-    loadedFont = opentype.parse(ab);
-    fontNameEl.textContent = (loadedFont.names && loadedFont.names.fullName && loadedFont.names.fullName.en) ? loadedFont.names.fullName.en : file.name;
-    // build glyph list (use cmap or glyphs array)
-    glyphs = loadedFont.glyphs.glyphs.filter(g=>g.unicode!==undefined);
-    glyphList.innerHTML = '';
-    glyphs.forEach((g,i)=>{
-      const span = document.createElement('div'); span.className='glyph-cell';
-      span.innerHTML = '<div style="font-size:20px;line-height:1">'+String.fromCharCode(g.unicode)+'</div>';
-      span.title = g.name || ('U+'+g.unicode.toString(16));
-      span.addEventListener('click', ()=>{ selectGlyph(i); });
-      glyphList.appendChild(span);
-    });
-    glyphCountEl.textContent = glyphs.length;
-    if(glyphs.length>0){ selectGlyph(0); exportAllBtn.disabled=false; }
+        await loadFontBuffer(ab, file.name);
   }catch(err){ console.error(err); alert('Failed to load font: '+err.message); }
 }
+async function loadFontFromUrl(url, label){
+  try{
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const ab = await res.arrayBuffer();
+    await loadFontBuffer(ab, label || url);
+  }catch(err){ console.error(err); alert('Failed to load web font: '+err.message); }
+}
+
+async function loadFontBuffer(ab, displayName){
+  loadedFont = opentype.parse(ab);
+  fontNameEl.textContent = (loadedFont.names && loadedFont.names.fullName && loadedFont.names.fullName.en) ? loadedFont.names.fullName.en : displayName;
+  glyphs = loadedFont.glyphs.glyphs.filter(g=>g.unicode!==undefined);
+  glyphList.innerHTML = '';
+  glyphs.forEach((g,i)=>{
+    const span = document.createElement('div'); span.className='glyph-cell';
+    span.innerHTML = '<div style="font-size:20px;line-height:1">'+String.fromCharCode(g.unicode)+'</div>';
+    span.title = g.name || ('U+'+g.unicode.toString(16));
+    span.addEventListener('click', ()=>{ selectGlyph(i); });
+    glyphList.appendChild(span);
+  });
+  glyphCountEl.textContent = glyphs.length;
+  if(glyphs.length>0){ selectGlyph(0); exportAllBtn.disabled=false; }
+}
+function selectGlyph(i){
+  Array.from(glyphList.children).forEach((el,idx)=>el.classList.toggle('active', idx===i));
+  const ch = String.fromCharCode(glyphs[i].unicode);
+  textPreview.value = ch; buildPreview(); exportBtn.disabled=false;
+}
+
+// Convert opentype path to THREE.Shape(s). This version is robust and handles holes.
+function pathToShapes(path){
+  const commands = path.commands;
+  const contours = [];
+  let current = [];
+  commands.forEach(cmd=>{
+    if(cmd.type==='M'){
+      if(current.length) contours.push(current);
+      current = [{type:'M', x:cmd.x, y:cmd.y}];
+    } else if(cmd.type==='L'){
+      current.push({type:'L', x:cmd.x, y:cmd.y});
+    } else if(cmd.type==='C'){
+      current.push({type:'C', x:cmd.x, y:cmd.y, x1:cmd.x1, y1:cmd.y1, x2:cmd.x2, y2:cmd.y2});
+    } else if(cmd.type==='Q'){
+      current.push({type:'Q', x:cmd.x, y:cmd.y, x1:cmd.x1, y1:cmd.y1});
+    } else if(cmd.type==='Z'){
+      // close
+    }
+  });
