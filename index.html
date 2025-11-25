@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Font → Letterpress STL — Clean Build</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap">
+<style>
+  :root{--bg:#0f1724;--card:#0b1220;--muted:#9aa4b2;--accent:#7c3aed}
+  html,body{height:100%;margin:0;background:linear-gradient(180deg,#071024 0%,#091426 100%);font-family:Inter,system-ui,Segoe UI,Roboto,'Helvetica Neue',Arial}
+  .app{max-width:1200px;margin:28px auto;padding:18px;color:#e6eef8}
+  header{display:flex;align-items:center;gap:16px}
+  h1{margin:0;font-size:20px}
+  .grid{display:grid;grid-template-columns:320px 1fr;gap:18px;margin-top:18px}
+  .card{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));border:1px solid rgba(255,255,255,0.04);padding:14px;border-radius:12px}
+  label{display:block;font-size:13px;color:var(--muted);margin-top:10px}
+  input[type=text], input[type=number], select{width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+  .row{display:flex;gap:8px;align-items:center}
+  button{background:var(--accent);border:none;color:white;padding:8px 10px;border-radius:8px;cursor:pointer}
+  button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.06)}
+  #viewer{height:640px;border-radius:10px;overflow:hidden}
+  .glyph-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;max-height:420px;overflow:auto;margin-top:10px}
+  .glyph-cell{background:rgba(255,255,255,0.02);padding:8px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .glyph-cell.active{outline:2px solid rgba(124,58,237,0.6)}
+  .small{font-size:12px;color:var(--muted)}
+  footer{margin-top:12px;color:var(--muted);font-size:13px}
+  .flex{display:flex;gap:8px}
+  .controls{display:flex;flex-direction:column;gap:8px}
+  #viewer canvas{width:100%;height:100%;display:block}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='44' height='44'><rect rx='8' width='44' height='44' fill='%237c3aed'/><text x='50%' y='56%' font-size='20' font-family='sans-serif' fill='white' text-anchor='middle' alignment-baseline='middle'>DT</text></svg>" alt="logo" style="width:44px;height:44px;border-radius:8px">
+    <div>
+      <h1>Font → Letterpress STL (Clean Build)</h1>
+      <div class="small">Upload fonts, preview glyphs, add backs, mirror, and batch-export STLs.</div>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- Left column: controls -->
+    <div class="card">
+      <label>Drag & drop or choose a font (.ttf, .otf)</label>
+      <div id="drop" style="border:2px dashed rgba(255,255,255,0.04);padding:12px;border-radius:8px;cursor:pointer">Drop font here or <input id="file" type="file" accept=".ttf,.otf" style="display:inline-block;margin-left:6px"></div>
+      <div class="meta" style="margin-top:10px">
+        <div class="small">Loaded: <span id="fontName">—</span></div>
+        <div class="small">Glyphs: <span id="glyphCount">0</span></div>
+      </div>
+
+      <label>Glyph selector (click to preview)</label>
+      <div id="glyphList" class="glyph-grid card" style="padding:8px;background:transparent"></div>
+
+      <label>Text / Glyph (you can also type a short word)</label>
+      <input id="textPreview" type="text" value="A" maxlength="10">
+
+      <div class="controls">
+        <label>Type height (mm per em)</label>
+        <select id="heightPreset">
+          <option value="23.3">Display 0.918 in (23.3 mm)</option>
+          <option value="12">Small (12 mm)</option>
+          <option value="50">Large (50 mm)</option>
+          <option value="100">Custom 100 mm</option>
+        </select>
+
+        <label>Extrusion depth (mm)</label>
+        <input id="depth" type="number" value="3.0" step="0.1">
+
+        <label>Baseline shift (mm)</label>
+        <input id="baseline" type="number" value="0" step="0.1">
+
+        <label>Inset stroke amount (mm) — approximated (visual)</label>
+        <input id="inset" type="number" value="0" step="0.1">
+
+        <label>Mirror horizontally (letterpress)</label>
+        <label><input id="mirror" type="checkbox"> Mirror horizontally</label>
+
+        <label>Add rectangular flat back</label>
+        <label><input id="addBack" type="checkbox" checked> Add back</label>
+
+        <div class="row">
+          <button id="build">Build Preview</button>
+          <button id="export" class="ghost" disabled>Export Selected STL</button>
+          <button id="exportAll" class="ghost" disabled>Export All Glyphs (ZIP)</button>
+        </div>
+
+        <div class="small">Tip: "Inset stroke" approximates an engraved stroke by adding a scaled inner extrusion — for exact boolean engraving use a mesh editor (Blender).</div>
+      </div>
+    </div>
+
+    <!-- Right column: viewer -->
+    <div>
+      <div class="card" id="viewer"></div>
+      <div style="display:flex;gap:10px;margin-top:8px;align-items:center;justify-content:space-between">
+        <div class="small">Preview controls: rotate, pan, zoom. Center & reset camera after building.</div>
+        <div><button id="resetCam" class="ghost">Reset View</button></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Built to mimic DigitalTypeFoundry-style previews. Exports plain STLs — run through a slicer or mesh fixer if needed for printability.
+  </footer>
+</div>
+
+<!-- Libraries -->
+<script src="https://unpkg.com/opentype.js@1.3.4/dist/opentype.min.js"></script>
+<script type="module">
+// Correct ESM imports (no bare specifiers)
+import * as THREE from 'https://unpkg.com/three@0.164.1/build/three.module.js';
+import { OrbitControls } from 'https://unpkg.com/three@0.164.1/examples/jsm/controls/OrbitControls.js';
+import { STLExporter } from 'https://unpkg.com/three@0.164.1/examples/jsm/exporters/STLExporter.js';
+import JSZip from 'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.esm.min.js';
+import { BufferGeometryUtils } from 'https://unpkg.com/three@0.164.1/examples/jsm/utils/BufferGeometryUtils.js';
+
+// DOM
+const fileInput = document.getElementById('file');
+const drop = document.getElementById('drop');
+const fontNameEl = document.getElementById('fontName');
+const glyphList = document.getElementById('glyphList');
+const glyphCountEl = document.getElementById('glyphCount');
+const buildBtn = document.getElementById('build');
+const exportBtn = document.getElementById('export');
+const exportAllBtn = document.getElementById('exportAll');
+const textPreview = document.getElementById('textPreview');
+const depthInput = document.getElementById('depth');
+const mirrorChk = document.getElementById('mirror');
+const addBackChk = document.getElementById('addBack');
+const insetInput = document.getElementById('inset');
+const baselineInput = document.getElementById('baseline');
+const heightPreset = document.getElementById('heightPreset');
+const viewer = document.getElementById('viewer');
+const resetCamBtn = document.getElementById('resetCam');
+
+let loadedFont = null;
+let glyphs = [];
+let previewObject = null;
+
+// THREE setup
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b1220);
+const camera = new THREE.PerspectiveCamera(45, viewer.clientWidth / viewer.clientHeight, 0.1, 2000);
+camera.position.set(0, 120, 260);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(viewer.clientWidth, viewer.clientHeight);
+viewer.appendChild(renderer.domElement);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8); scene.add(hemi);
+const dir = new THREE.DirectionalLight(0xffffff, 0.6); dir.position.set(100,200,100); scene.add(dir);
+const grid = new THREE.GridHelper(400, 40, 0x111827, 0x0b1220); grid.material.opacity = 0.12; grid.material.transparent = true; scene.add(grid);
+
+let previewGroup = new THREE.Group(); scene.add(previewGroup);
+
+function animate(){ requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+animate();
+
+window.addEventListener('resize', ()=>{ renderer.setSize(viewer.clientWidth, viewer.clientHeight); camera.aspect = viewer.clientWidth / viewer.clientHeight; camera.updateProjectionMatrix(); });
+
+// File handling + drag/drop
+fileInput.addEventListener('change', async (e)=>{ if(e.target.files && e.target.files[0]) await loadFontFile(e.target.files[0]); });
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.style.borderColor='rgba(124,58,237,0.7)'; }));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.style.borderColor='rgba(255,255,255,0.04)'; }));
+drop.addEventListener('drop', async (e)=>{ if(e.dataTransfer.files && e.dataTransfer.files[0]) await loadFontFile(e.dataTransfer.files[0]); });
+
+async function loadFontFile(file){
+  try{
+    const ab = await file.arrayBuffer();
+    loadedFont = opentype.parse(ab);
+    fontNameEl.textContent = (loadedFont.names && loadedFont.names.fullName && loadedFont.names.fullName.en) ? loadedFont.names.fullName.en : file.name;
+    // build glyph list (use cmap or glyphs array)
+    glyphs = loadedFont.glyphs.glyphs.filter(g=>g.unicode!==undefined);
+    glyphList.innerHTML = '';
+    glyphs.forEach((g,i)=>{
+      const span = document.createElement('div'); span.className='glyph-cell';
+      span.innerHTML = '<div style="font-size:20px;line-height:1">'+String.fromCharCode(g.unicode)+'</div>';
+      span.title = g.name || ('U+'+g.unicode.toString(16));
+      span.addEventListener('click', ()=>{ selectGlyph(i); });
+      glyphList.appendChild(span);
+    });
+    glyphCountEl.textContent = glyphs.length;
+    if(glyphs.length>0){ selectGlyph(0); exportAllBtn.disabled=false; }
+  }catch(err){ console.error(err); alert('Failed to load font: '+err.message); }
+}
+
+function selectGlyph(i){
+  Array.from(glyphList.children).forEach((el,idx)=>el.classList.toggle('active', idx===i));
+  const ch = String.fromCharCode(glyphs[i].unicode);
+  textPreview.value = ch; buildPreview(); exportBtn.disabled=false;
+}
+
+// Convert opentype path to THREE.Shape(s). This version is robust and handles holes.
+function pathToShapes(path){
+  const commands = path.commands;
+  const contours = [];
+  let current = [];
+  commands.forEach(cmd=>{
+    if(cmd.type==='M'){
+      if(current.length) contours.push(current);
+      current = [{type:'M', x:cmd.x, y:cmd.y}];
+    } else if(cmd.type==='L'){
+      current.push({type:'L', x:cmd.x, y:cmd.y});
+    } else if(cmd.type==='C'){
+      current.push({type:'C', x:cmd.x, y:cmd.y, x1:cmd.x1, y1:cmd.y1, x2:cmd.x2, y2:cmd.y2});
+    } else if(cmd.type==='Q'){
+      current.push({type:'Q', x:cmd.x, y:cmd.y, x1:cmd.x1, y1:cmd.y1});
+    } else if(cmd.type==='Z'){
+      // close
+    }
+  });
+  if(current.length) contours.push(current);
+
+  function contourArea(contour){
+    const pts = contour.filter(p=>p.type!=='C'&&p.type!=='Q');
+    let a=0; for(let i=0;i<pts.length;i++){ const p1=pts[i]; const p2=pts[(i+1)%pts.length]; a += (p1.x * p2.y - p2.x * p1.y); } return a/2;
+  }
+
+  const outers = [];
+  const holes = [];
+  contours.forEach(c=>{ if(contourArea(c) >= 0) outers.push(c); else holes.push(c); });
+
+  function contourToShape(contour){
+    const s = new THREE.Shape();
+    for(let i=0;i<contour.length;i++){
+      const cmd = contour[i];
+      if(i===0) s.moveTo(cmd.x, -cmd.y);
+      else{
+        if(cmd.type==='L') s.lineTo(cmd.x, -cmd.y);
+        else if(cmd.type==='C') s.bezierCurveTo(cmd.x1, -cmd.y1, cmd.x2, -cmd.y2, cmd.x, -cmd.y);
+        else if(cmd.type==='Q') s.quadraticCurveTo(cmd.x1, -cmd.y1, cmd.x, -cmd.y);
+      }
+    }
+    return s;
+  }
+
+  const shapes = [];
+  outers.forEach(o=>{
+    const shape = contourToShape(o);
+    holes.forEach(h=>{
+      // if first point of hole is inside outer, attach
+      const hp = h[0];
+      if(pointInContour({x:hp.x,y:hp.y}, o)) shape.holes.push(contourToShape(h));
+    });
+    shapes.push(shape);
+  });
+  return shapes;
+}
+
+function pointInContour(pt, contour){
+  const poly = contour.filter(p=>p.type!=='C'&&p.type!=='Q');
+  let inside=false; for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const xi=poly[i].x, yi=poly[i].y; const xj=poly[j].x, yj=poly[j].y;
+    const intersect = ((yi>pt.y)!=(yj>pt.y)) && (pt.x < (xj-xi)*(pt.y-yi)/(yj-yi)+xi);
+    if(intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// Build preview
+function buildPreview(){
+  if(!loadedFont) return alert('Load a font first.');
+  previewGroup.clear();
+  const text = textPreview.value || '';
+  if(!text) return;
+
+  const emMM = parseFloat(heightPreset.value) || 23.3;
+  const unitsPerEm = loadedFont.unitsPerEm || 1000;
+  const scale = emMM / unitsPerEm;
+  const depth = parseFloat(depthInput.value) || 3;
+  const inset = parseFloat(insetInput.value) || 0;
+  const baseline = parseFloat(baselineInput.value) || 0;
+  const mirror = mirrorChk.checked;
+  const addBack = addBackChk.checked;
+
+  const tempGroup = new THREE.Group();
+  let cursor = 0;
+
+  for(let ci=0; ci<text.length; ci++){
+    const ch = text[ci];
+    const glyph = loadedFont.charToGlyph(ch);
+    if(!glyph) continue;
+    const path = glyph.getPath(0, 0, unitsPerEm);
+    const shapes = pathToShapes(path);
+    if(!shapes || shapes.length===0) continue;
+
+    const glyphGroup = new THREE.Group();
+    shapes.forEach(s=>{
+      const geom = new THREE.ExtrudeGeometry(s, { depth: depth, bevelEnabled:false, curveSegments: 32 });
+      geom.scale(scale, scale, 1);
+      // apply baseline shift
+      const mesh = new THREE.Mesh(geom, new THREE.MeshStandardMaterial({color:0xe6eef8}));
+      mesh.position.y += baseline;
+      glyphGroup.add(mesh);
+    });
+
+    // inset stroke approximation: create scaled-down inner extrusion and translate slightly into face
+    if(inset>0){
+      const innerGroup = new THREE.Group();
+      shapes.forEach(s=>{
+        const innerShape = s.clone();
+        const bbox = new THREE.Box2(); const pts = innerShape.getPoints(); pts.forEach(p=>bbox.expandByPoint(new THREE.Vector2(p.x,p.y)));
+        const center = new THREE.Vector2((bbox.min.x+bbox.max.x)/2, (bbox.min.y+bbox.max.y)/2);
+        const sizeX = Math.max(1, bbox.getSize(new THREE.Vector2()).x);
+        const scaleFactor = Math.max(0.001, ( (sizeX - (inset / scale)) / sizeX ));
+        innerShape.applyMatrix4(new THREE.Matrix4().makeTranslation(-center.x, -center.y, 0));
+        innerShape.applyMatrix4(new THREE.Matrix4().makeScale(scaleFactor, scaleFactor, 1));
+        innerShape.applyMatrix4(new THREE.Matrix4().makeTranslation(center.x, center.y, 0));
+
+        const innerGeom = new THREE.ExtrudeGeometry(innerShape, { depth: Math.max(0.1, inset/2), bevelEnabled:false, curveSegments: 24 });
+        innerGeom.scale(scale, scale, 1);
+        const innerMesh = new THREE.Mesh(innerGeom, new THREE.MeshStandardMaterial({color:0xcbd5e1}));
+        innerMesh.position.y += baseline;
+        innerMesh.position.z -= (inset/4);
+        innerGroup.add(innerMesh);
+      });
+      glyphGroup.add(innerGroup);
+    }
+
+    // position and advance cursor
+    const advance = (glyph.advanceWidth || unitsPerEm) * scale;
+    glyphGroup.position.x = cursor;
+    cursor += advance;
+    tempGroup.add(glyphGroup);
+  }
+
+  // center
+  const box = new THREE.Box3().setFromObject(tempGroup);
+  const center = box.getCenter(new THREE.Vector3());
+  tempGroup.position.x -= center.x; tempGroup.position.y -= center.y;
+
+  if(mirror) tempGroup.scale.x *= -1;
+
+  // Add flat back if requested
+  if(addBack){
+    const bbox = new THREE.Box3().setFromObject(tempGroup);
+    const size = bbox.getSize(new THREE.Vector3());
+    const pad = Math.max(2, size.x * 0.02);
+    const backGeom = new THREE.BoxGeometry(size.x + pad, size.y + pad, Math.max(1, parseFloat(depthInput.value)/2));
+    const backMesh = new THREE.Mesh(backGeom, new THREE.MeshStandardMaterial({color:0x94a3b8}));
+    backMesh.position.set(0,0,-(Math.max(1, parseFloat(depthInput.value)/2)/2));
+    const glyphMerged = mergeGroupToMesh(tempGroup);
+    glyphMerged.updateMatrix(); backMesh.updateMatrix();
+    const mergedGeom = BufferGeometryUtils.mergeBufferGeometries([glyphMerged.geometry.clone().applyMatrix4(glyphMerged.matrix), backMesh.geometry.clone().applyMatrix4(backMesh.matrix)], true);
+    const mergedMesh = new THREE.Mesh(mergedGeom, new THREE.MeshStandardMaterial({color:0xe6eef8}));
+    previewGroup.add(mergedMesh);
+    previewObject = mergedMesh;
+  } else {
+    const glyphMerged = mergeGroupToMesh(tempGroup);
+    previewGroup.add(glyphMerged);
+    previewObject = glyphMerged;
+  }
+
+  centerCameraOnObject(previewObject);
+}
+
+function mergeGroupToMesh(group){
+  const geoms = [];
+  group.traverse(c=>{ if(c.isMesh){ const g = c.geometry.clone(); g.applyMatrix4(c.matrix); geoms.push(g); } });
+  if(geoms.length===0) return new THREE.Mesh(new THREE.BoxGeometry(1,1,1));
+  const merged = BufferGeometryUtils.mergeBufferGeometries(geoms, true);
+  const mesh = new THREE.Mesh(merged, new THREE.MeshStandardMaterial({color:0xe6eef8}));
+  return mesh;
+}
+
+function centerCameraOnObject(obj){
+  const box = new THREE.Box3().setFromObject(obj);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  controls.target.copy(center);
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const fov = camera.fov * (Math.PI/180);
+  let camZ = Math.abs(maxDim / 2 / Math.tan(fov/2));
+  camZ *= 1.5;
+  camera.position.set(center.x, center.y + maxDim*0.5, center.z + camZ);
+  camera.updateProjectionMatrix();
+}
+
+// Export selected (previewObject) as STL
+function exportSelected(){
+  if(!previewObject) return alert('Nothing to export.');
+  const exporter = new STLExporter();
+  const stl = exporter.parse(previewObject);
+  downloadBlob(new Blob([stl], {type:'application/vnd.ms-pki.stl'}), (textPreview.value||'glyph') + '.stl');
+}
+
+// Export all glyphs as ZIP of STLs
+async function exportAll(){
+  if(!loadedFont) return alert('Load a font first.');
+  const zip = new JSZip();
+  const originalText = textPreview.value;
+  for(let i=0;i<glyphs.length;i++){
+    const ch = String.fromCharCode(glyphs[i].unicode);
+    textPreview.value = ch;
+    buildPreview();
+    await new Promise(r=>setTimeout(r,20));
+    if(!previewObject) continue;
+    const exporter = new STLExporter();
+    const stl = exporter.parse(previewObject);
+    zip.file((ch || ('u'+glyphs[i].unicode.toString(16))) + '.stl', stl);
+  }
+  const blob = await zip.generateAsync({type:'blob'});
+  downloadBlob(blob, (loadedFont.names && loadedFont.names.fullName && loadedFont.names.fullName.en ? loadedFont.names.fullName.en.replace(/\s+/g,'_') : 'font') + '-glyphs.zip');
+  textPreview.value = originalText; buildPreview();
+}
+
+function downloadBlob(blob, filename){ const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url); }
+
+// UI hooks
+buildBtn.addEventListener('click', buildPreview);
+exportBtn.addEventListener('click', exportSelected);
+exportAllBtn.addEventListener('click', exportAll);
+resetCamBtn.addEventListener('click', ()=>{ controls.reset(); camera.position.set(0,120,260); });
+
+</script>
+</body>
+</html>
