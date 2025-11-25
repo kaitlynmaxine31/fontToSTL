@@ -47,6 +47,15 @@
     <div class="card">
       <label>Drag & drop or choose a font (.ttf, .otf)</label>
       <div id="drop" style="border:2px dashed rgba(255,255,255,0.04);padding:12px;border-radius:8px;cursor:pointer">Drop font here or <input id="file" type="file" accept=".ttf,.otf" style="display:inline-block;margin-left:6px"></div>
+      <label style="margin-top:12px">Or try a preset web font (no upload)</label>
+      <div class="row">
+        <select id="presetFont">
+          <option value="merriweathersans">Merriweather Sans (Google Fonts)</option>
+          <option value="inter">Inter (Google Fonts)</option>
+        </select>
+        <button id="loadPreset">Load</button>
+      </div>
+      <div class="small">Useful for quick STL trials without a local font file.</div>
       <div class="meta" style="margin-top:10px">
         <div class="small">Loaded: <span id="fontName">—</span></div>
         <div class="small">Glyphs: <span id="glyphCount">0</span></div>
@@ -171,11 +180,23 @@ const baselineInput = document.getElementById('baseline');
 const heightPreset = document.getElementById('heightPreset');
 const viewer = document.getElementById('viewer');
 const resetCamBtn = document.getElementById('resetCam');
+const presetFont = document.getElementById('presetFont');
+const loadPresetBtn = document.getElementById('loadPreset');
 const persistentControls = [heightPreset, depthInput, baselineInput, insetInput, mirrorChk, addBackChk];
 
 let loadedFont = null;
 let glyphs = [];
 let previewObject = null;
+const presetFonts = {
+  merriweathersans: {
+    url: 'https://cdn.jsdelivr.net/gh/google/fonts/ofl/merriweathersans/MerriweatherSans-Regular.ttf',
+    label: 'Merriweather Sans Regular'
+  },
+  inter: {
+    url: 'https://cdn.jsdelivr.net/gh/google/fonts/ofl/inter/Inter-Regular.ttf',
+    label: 'Inter Regular'
+  }
+};
 
 // THREE setup
 const scene = new THREE.Scene();
@@ -236,25 +257,43 @@ fileInput.addEventListener('change', async (e)=>{ if(e.target.files && e.target.
 ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.style.borderColor='rgba(124,58,237,0.7)'; }));
 ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.style.borderColor='rgba(255,255,255,0.04)'; }));
 drop.addEventListener('drop', async (e)=>{ if(e.dataTransfer.files && e.dataTransfer.files[0]) await loadFontFile(e.dataTransfer.files[0]); });
+loadPresetBtn.addEventListener('click', async ()=>{
+  const choice = presetFont.value;
+  const cfg = presetFonts[choice];
+  if(!cfg) return;
+  await loadFontFromUrl(cfg.url, cfg.label);
+});
 
 async function loadFontFile(file){
   try{
     const ab = await file.arrayBuffer();
-    loadedFont = opentype.parse(ab);
-    fontNameEl.textContent = (loadedFont.names && loadedFont.names.fullName && loadedFont.names.fullName.en) ? loadedFont.names.fullName.en : file.name;
-    // build glyph list (use cmap or glyphs array)
-    glyphs = loadedFont.glyphs.glyphs.filter(g=>g.unicode!==undefined);
-    glyphList.innerHTML = '';
-    glyphs.forEach((g,i)=>{
-      const span = document.createElement('div'); span.className='glyph-cell';
-      span.innerHTML = '<div style="font-size:20px;line-height:1">'+String.fromCharCode(g.unicode)+'</div>';
-      span.title = g.name || ('U+'+g.unicode.toString(16));
-      span.addEventListener('click', ()=>{ selectGlyph(i); });
-      glyphList.appendChild(span);
-    });
-    glyphCountEl.textContent = glyphs.length;
-    if(glyphs.length>0){ selectGlyph(0); exportAllBtn.disabled=false; }
+    await loadFontBuffer(ab, file.name);
   }catch(err){ console.error(err); alert('Failed to load font: '+err.message); }
+}
+
+async function loadFontFromUrl(url, label){
+  try{
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const ab = await res.arrayBuffer();
+    await loadFontBuffer(ab, label || url);
+  }catch(err){ console.error(err); alert('Failed to load web font: '+err.message); }
+}
+
+async function loadFontBuffer(ab, displayName){
+  loadedFont = opentype.parse(ab);
+  fontNameEl.textContent = (loadedFont.names && loadedFont.names.fullName && loadedFont.names.fullName.en) ? loadedFont.names.fullName.en : displayName;
+  glyphs = loadedFont.glyphs.glyphs.filter(g=>g.unicode!==undefined);
+  glyphList.innerHTML = '';
+  glyphs.forEach((g,i)=>{
+    const span = document.createElement('div'); span.className='glyph-cell';
+    span.innerHTML = '<div style="font-size:20px;line-height:1">'+String.fromCharCode(g.unicode)+'</div>';
+    span.title = g.name || ('U+'+g.unicode.toString(16));
+    span.addEventListener('click', ()=>{ selectGlyph(i); });
+    glyphList.appendChild(span);
+  });
+  glyphCountEl.textContent = glyphs.length;
+  if(glyphs.length>0){ selectGlyph(0); exportAllBtn.disabled=false; }
 }
 
 function selectGlyph(i){
